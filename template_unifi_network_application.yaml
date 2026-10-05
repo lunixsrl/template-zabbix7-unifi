@@ -1,0 +1,542 @@
+zabbix_export:
+  version: '7.0'
+  template_groups:
+  - uuid: b17730e2dea8487cb35a3af18a59aa2c
+    name: Templates/Network devices
+  templates:
+  - uuid: 10a160f472974c7e867c2b8574cbf0fa
+    template: UniFi Network Application by API
+    name: UniFi Network Application by API
+    description: 'UniFi Network Application standalone monitoring via local API.
+
+      Multi-site version for Zabbix 7.0: logs in once, discovers every site visible to the
+
+      monitoring user, retrieves all APs, and adds site-aware LLD macros, item names and
+
+      trigger tags. Requires only URL, user and password host macros.'
+    groups:
+    - name: Templates/Network devices
+    items:
+    - uuid: d23271c2d7774a08aea753730f4ab0d8
+      name: 'UniFi: Get AP data (all sites)'
+      type: SCRIPT
+      key: unifi.aps.raw
+      delay: 1m
+      history: 1d
+      trends: '0'
+      value_type: TEXT
+      params: "var p = JSON.parse(value);\nvar req = new HttpRequest();\n\nreq.addHeader('Content-Type: application/json');\n\
+        \nvar login = req.post(p.url + '/api/login', JSON.stringify({\n    username: p.user,\n    password: p.password\n}));\n\
+        \nif (req.getStatus() != 200) {\n    throw 'UniFi login failed. HTTP status: ' + req.getStatus() + '; response: '\
+        \ + login;\n}\n\nvar sitesRaw = req.get(p.url + '/api/self/sites');\n\nif (req.getStatus() != 200) {\n    throw 'UniFi\
+        \ site query failed. HTTP status: ' + req.getStatus() + '; response: ' + sitesRaw;\n}\n\nvar sitesObj = JSON.parse(sitesRaw);\n\
+        \nif (!sitesObj.meta || sitesObj.meta.rc !== 'ok' || !sitesObj.data) {\n    throw 'Unexpected UniFi sites response:\
+        \ ' + sitesRaw;\n}\n\nvar result = [];\n\nfor (var i = 0; i < sitesObj.data.length; i++) {\n    var site = sitesObj.data[i];\n\
+        \    var devicesRaw = req.get(p.url + '/api/s/' + encodeURIComponent(site.name) + '/stat/device');\n\n    if (req.getStatus()\
+        \ != 200) {\n        throw 'UniFi device query failed for site ' + site.name +\n              '. HTTP status: ' +\
+        \ req.getStatus() + '; response: ' + devicesRaw;\n    }\n\n    var devicesObj = JSON.parse(devicesRaw);\n\n    if\
+        \ (!devicesObj.meta || devicesObj.meta.rc !== 'ok' || !devicesObj.data) {\n        throw 'Unexpected UniFi device\
+        \ response for site ' + site.name + ': ' + devicesRaw;\n    }\n\n    for (var j = 0; j < devicesObj.data.length; j++)\
+        \ {\n        var d = devicesObj.data[j];\n\n        if (d.type === 'uap') {\n            d.zbx_site_id = site.name\
+        \ || '';\n            d.zbx_site_name = site.desc || site.name || '';\n            result.push(d);\n        }\n  \
+        \  }\n}\n\nreturn JSON.stringify(result);"
+      parameters:
+      - name: password
+        value: '{$UNIFI.PASSWORD}'
+      - name: url
+        value: '{$UNIFI.URL}'
+      - name: user
+        value: '{$UNIFI.USER}'
+      timeout: 30s
+      tags:
+      - tag: component
+        value: raw
+    discovery_rules:
+    - uuid: 9e0e0ba699d243d2a905342ab99a0f85
+      name: 'UniFi: Access point discovery (all sites)'
+      type: DEPENDENT
+      key: unifi.ap.discovery
+      delay: '0'
+      lifetime: 7d
+      enabled_lifetime_type: DISABLE_NEVER
+      item_prototypes:
+      - uuid: ba1eabfbe4444c9b9bb9f8877c386b53
+        name: '[{#SITE.NAME}] AP {#AP.NAME}: Status'
+        type: DEPENDENT
+        key: unifi.ap.status[{#SITE.ID},{#AP.MAC}]
+        delay: '0'
+        history: 7d
+        trends: 90d
+        preprocessing:
+        - type: JAVASCRIPT
+          parameters:
+          - "var data = JSON.parse(value);\nvar a = null;\nfor (var i = 0; i < data.length; i++) {\n    if (data[i].mac ===\
+            \ \"{#AP.MAC}\" && data[i].zbx_site_id === \"{#SITE.ID}\") {\n        a = data[i];\n        break;\n    }\n}\n\
+            return a ? (a.state || 0) : 0;\n"
+        master_item:
+          key: unifi.aps.raw
+        tags:
+        - tag: site
+          value: '{#SITE.NAME}'
+        - tag: ap
+          value: '{#AP.NAME}'
+      - uuid: 9daaf39cf9cc4ec0bd69fab0fa4bf9d2
+        name: '[{#SITE.NAME}] AP {#AP.NAME}: IP address'
+        type: DEPENDENT
+        key: unifi.ap.ip[{#SITE.ID},{#AP.MAC}]
+        delay: '0'
+        history: 30d
+        value_type: CHAR
+        trends: '0'
+        preprocessing:
+        - type: JAVASCRIPT
+          parameters:
+          - "var data = JSON.parse(value);\nvar a = null;\nfor (var i = 0; i < data.length; i++) {\n    if (data[i].mac ===\
+            \ \"{#AP.MAC}\" && data[i].zbx_site_id === \"{#SITE.ID}\") {\n        a = data[i];\n        break;\n    }\n}\n\
+            return a && a.ip ? a.ip : \"\";\n"
+        master_item:
+          key: unifi.aps.raw
+        tags:
+        - tag: site
+          value: '{#SITE.NAME}'
+        - tag: ap
+          value: '{#AP.NAME}'
+      - uuid: 6f4902851f5640f78351f4422c9b91d5
+        name: '[{#SITE.NAME}] AP {#AP.NAME}: Model'
+        type: DEPENDENT
+        key: unifi.ap.model[{#SITE.ID},{#AP.MAC}]
+        delay: '0'
+        history: 30d
+        value_type: CHAR
+        trends: '0'
+        preprocessing:
+        - type: JAVASCRIPT
+          parameters:
+          - "var data = JSON.parse(value);\nvar a = null;\nfor (var i = 0; i < data.length; i++) {\n    if (data[i].mac ===\
+            \ \"{#AP.MAC}\" && data[i].zbx_site_id === \"{#SITE.ID}\") {\n        a = data[i];\n        break;\n    }\n}\n\
+            return a && a.model ? a.model : \"\";\n"
+        master_item:
+          key: unifi.aps.raw
+        tags:
+        - tag: site
+          value: '{#SITE.NAME}'
+        - tag: ap
+          value: '{#AP.NAME}'
+      - uuid: ae5d4a9139e648498b8bfc061e8c4631
+        name: '[{#SITE.NAME}] AP {#AP.NAME}: Firmware'
+        type: DEPENDENT
+        key: unifi.ap.firmware[{#SITE.ID},{#AP.MAC}]
+        delay: '0'
+        history: 30d
+        value_type: CHAR
+        trends: '0'
+        preprocessing:
+        - type: JAVASCRIPT
+          parameters:
+          - "var data = JSON.parse(value);\nvar a = null;\nfor (var i = 0; i < data.length; i++) {\n    if (data[i].mac ===\
+            \ \"{#AP.MAC}\" && data[i].zbx_site_id === \"{#SITE.ID}\") {\n        a = data[i];\n        break;\n    }\n}\n\
+            return a && a.version ? a.version : \"\";\n"
+        master_item:
+          key: unifi.aps.raw
+        tags:
+        - tag: site
+          value: '{#SITE.NAME}'
+        - tag: ap
+          value: '{#AP.NAME}'
+      - uuid: 5ebe3aeb6d264271b7d55d95051a6378
+        name: '[{#SITE.NAME}] AP {#AP.NAME}: Uptime'
+        type: DEPENDENT
+        key: unifi.ap.uptime[{#SITE.ID},{#AP.MAC}]
+        delay: '0'
+        history: 7d
+        trends: 90d
+        units: uptime
+        preprocessing:
+        - type: JAVASCRIPT
+          parameters:
+          - "var data = JSON.parse(value);\nvar a = null;\nfor (var i = 0; i < data.length; i++) {\n    if (data[i].mac ===\
+            \ \"{#AP.MAC}\" && data[i].zbx_site_id === \"{#SITE.ID}\") {\n        a = data[i];\n        break;\n    }\n}\n\
+            return a && a.uptime != null ? a.uptime : 0;\n"
+        master_item:
+          key: unifi.aps.raw
+        tags:
+        - tag: site
+          value: '{#SITE.NAME}'
+        - tag: ap
+          value: '{#AP.NAME}'
+      - uuid: d70125486b4241a8be1fcba5cb824bdc
+        name: '[{#SITE.NAME}] AP {#AP.NAME}: Clients'
+        type: DEPENDENT
+        key: unifi.ap.clients[{#SITE.ID},{#AP.MAC}]
+        delay: '0'
+        history: 7d
+        trends: 90d
+        preprocessing:
+        - type: JAVASCRIPT
+          parameters:
+          - "var data = JSON.parse(value);\nvar a = null;\nfor (var i = 0; i < data.length; i++) {\n    if (data[i].mac ===\
+            \ \"{#AP.MAC}\" && data[i].zbx_site_id === \"{#SITE.ID}\") {\n        a = data[i];\n        break;\n    }\n}\n\
+            return a && a.num_sta != null ? a.num_sta : 0;\n"
+        master_item:
+          key: unifi.aps.raw
+        tags:
+        - tag: site
+          value: '{#SITE.NAME}'
+        - tag: ap
+          value: '{#AP.NAME}'
+      - uuid: e7502dd8b20741819f10c894225edafd
+        name: '[{#SITE.NAME}] AP {#AP.NAME}: Satisfaction'
+        type: DEPENDENT
+        key: unifi.ap.satisfaction[{#SITE.ID},{#AP.MAC}]
+        delay: '0'
+        history: 7d
+        value_type: FLOAT
+        trends: 90d
+        units: '%'
+        preprocessing:
+        - type: JAVASCRIPT
+          parameters:
+          - "var data = JSON.parse(value);\nvar a = null;\nfor (var i = 0; i < data.length; i++) {\n    if (data[i].mac ===\
+            \ \"{#AP.MAC}\" && data[i].zbx_site_id === \"{#SITE.ID}\") {\n        a = data[i];\n        break;\n    }\n}\n\
+            return a && a.satisfaction != null ? a.satisfaction : -1;\n"
+        master_item:
+          key: unifi.aps.raw
+        tags:
+        - tag: site
+          value: '{#SITE.NAME}'
+        - tag: ap
+          value: '{#AP.NAME}'
+      - uuid: 9244022155e149c383801b0ac1b3f72a
+        name: '[{#SITE.NAME}] AP {#AP.NAME}: 2.4 GHz channel'
+        type: DEPENDENT
+        key: unifi.ap.ch24[{#SITE.ID},{#AP.MAC}]
+        delay: '0'
+        history: 7d
+        trends: 90d
+        preprocessing:
+        - type: JAVASCRIPT
+          parameters:
+          - "var data = JSON.parse(value);\nvar a = null;\nfor (var i = 0; i < data.length; i++) {\n    if (data[i].mac ===\
+            \ \"{#AP.MAC}\" && data[i].zbx_site_id === \"{#SITE.ID}\") {\n        a = data[i];\n        break;\n    }\n}\n\
+            var radios = (a && a.radio_table_stats) ? a.radio_table_stats : [];\nvar r = null;\nfor (var j = 0; j < radios.length;\
+            \ j++) {\n    if (radios[j].radio === \"ng\") {\n        r = radios[j];\n        break;\n    }\n}\nreturn r &&\
+            \ r.channel != null ? r.channel : 0;\n"
+        master_item:
+          key: unifi.aps.raw
+        tags:
+        - tag: site
+          value: '{#SITE.NAME}'
+        - tag: ap
+          value: '{#AP.NAME}'
+      - uuid: 9edc9e21046d4224b8584085bf930fd3
+        name: '[{#SITE.NAME}] AP {#AP.NAME}: 2.4 GHz channel utilization'
+        type: DEPENDENT
+        key: unifi.ap.cu24[{#SITE.ID},{#AP.MAC}]
+        delay: '0'
+        history: 7d
+        value_type: FLOAT
+        trends: 90d
+        units: '%'
+        preprocessing:
+        - type: JAVASCRIPT
+          parameters:
+          - "var data = JSON.parse(value);\nvar a = null;\nfor (var i = 0; i < data.length; i++) {\n    if (data[i].mac ===\
+            \ \"{#AP.MAC}\" && data[i].zbx_site_id === \"{#SITE.ID}\") {\n        a = data[i];\n        break;\n    }\n}\n\
+            var radios = (a && a.radio_table_stats) ? a.radio_table_stats : [];\nvar r = null;\nfor (var j = 0; j < radios.length;\
+            \ j++) {\n    if (radios[j].radio === \"ng\") {\n        r = radios[j];\n        break;\n    }\n}\nreturn r &&\
+            \ r.cu_total != null ? r.cu_total : 0;\n"
+        master_item:
+          key: unifi.aps.raw
+        tags:
+        - tag: site
+          value: '{#SITE.NAME}'
+        - tag: ap
+          value: '{#AP.NAME}'
+      - uuid: d68618217fe54086a3a49350b51a2241
+        name: '[{#SITE.NAME}] AP {#AP.NAME}: 2.4 GHz TX power'
+        type: DEPENDENT
+        key: unifi.ap.tx24[{#SITE.ID},{#AP.MAC}]
+        delay: '0'
+        history: 7d
+        value_type: FLOAT
+        trends: 90d
+        units: dBm
+        preprocessing:
+        - type: JAVASCRIPT
+          parameters:
+          - "var data = JSON.parse(value);\nvar a = null;\nfor (var i = 0; i < data.length; i++) {\n    if (data[i].mac ===\
+            \ \"{#AP.MAC}\" && data[i].zbx_site_id === \"{#SITE.ID}\") {\n        a = data[i];\n        break;\n    }\n}\n\
+            var radios = (a && a.radio_table_stats) ? a.radio_table_stats : [];\nvar r = null;\nfor (var j = 0; j < radios.length;\
+            \ j++) {\n    if (radios[j].radio === \"ng\") {\n        r = radios[j];\n        break;\n    }\n}\nreturn r &&\
+            \ r.tx_power != null ? r.tx_power : 0;\n"
+        master_item:
+          key: unifi.aps.raw
+        tags:
+        - tag: site
+          value: '{#SITE.NAME}'
+        - tag: ap
+          value: '{#AP.NAME}'
+      - uuid: 22b8c43e255f450ca6dffa13339cc499
+        name: '[{#SITE.NAME}] AP {#AP.NAME}: 2.4 GHz TX retries'
+        type: DEPENDENT
+        key: unifi.ap.retry24[{#SITE.ID},{#AP.MAC}]
+        delay: '0'
+        history: 7d
+        value_type: FLOAT
+        trends: 90d
+        units: '%'
+        preprocessing:
+        - type: JAVASCRIPT
+          parameters:
+          - "var data = JSON.parse(value);\nvar a = null;\nfor (var i = 0; i < data.length; i++) {\n    if (data[i].mac ===\
+            \ \"{#AP.MAC}\" && data[i].zbx_site_id === \"{#SITE.ID}\") {\n        a = data[i];\n        break;\n    }\n}\n\
+            var radios = (a && a.radio_table_stats) ? a.radio_table_stats : [];\nvar r = null;\nfor (var j = 0; j < radios.length;\
+            \ j++) {\n    if (radios[j].radio === \"ng\") {\n        r = radios[j];\n        break;\n    }\n}\nreturn r &&\
+            \ r.tx_retries_pct != null ? r.tx_retries_pct : 0;\n"
+        master_item:
+          key: unifi.aps.raw
+        tags:
+        - tag: site
+          value: '{#SITE.NAME}'
+        - tag: ap
+          value: '{#AP.NAME}'
+      - uuid: 2d26b0be2e524b1c86081803561e3fcb
+        name: '[{#SITE.NAME}] AP {#AP.NAME}: 2.4 GHz clients'
+        type: DEPENDENT
+        key: unifi.ap.clients24[{#SITE.ID},{#AP.MAC}]
+        delay: '0'
+        history: 7d
+        trends: 90d
+        preprocessing:
+        - type: JAVASCRIPT
+          parameters:
+          - "var data = JSON.parse(value);\nvar a = null;\nfor (var i = 0; i < data.length; i++) {\n    if (data[i].mac ===\
+            \ \"{#AP.MAC}\" && data[i].zbx_site_id === \"{#SITE.ID}\") {\n        a = data[i];\n        break;\n    }\n}\n\
+            var radios = (a && a.radio_table_stats) ? a.radio_table_stats : [];\nvar r = null;\nfor (var j = 0; j < radios.length;\
+            \ j++) {\n    if (radios[j].radio === \"ng\") {\n        r = radios[j];\n        break;\n    }\n}\nreturn r &&\
+            \ r.num_sta != null ? r.num_sta : 0;\n"
+        master_item:
+          key: unifi.aps.raw
+        tags:
+        - tag: site
+          value: '{#SITE.NAME}'
+        - tag: ap
+          value: '{#AP.NAME}'
+      - uuid: a11551bc86b04aeb9374e5d19e3b9e66
+        name: '[{#SITE.NAME}] AP {#AP.NAME}: 5 GHz channel'
+        type: DEPENDENT
+        key: unifi.ap.ch5[{#SITE.ID},{#AP.MAC}]
+        delay: '0'
+        history: 7d
+        trends: 90d
+        preprocessing:
+        - type: JAVASCRIPT
+          parameters:
+          - "var data = JSON.parse(value);\nvar a = null;\nfor (var i = 0; i < data.length; i++) {\n    if (data[i].mac ===\
+            \ \"{#AP.MAC}\" && data[i].zbx_site_id === \"{#SITE.ID}\") {\n        a = data[i];\n        break;\n    }\n}\n\
+            var radios = (a && a.radio_table_stats) ? a.radio_table_stats : [];\nvar r = null;\nfor (var j = 0; j < radios.length;\
+            \ j++) {\n    if (radios[j].radio === \"na\") {\n        r = radios[j];\n        break;\n    }\n}\nreturn r &&\
+            \ r.channel != null ? r.channel : 0;\n"
+        master_item:
+          key: unifi.aps.raw
+        tags:
+        - tag: site
+          value: '{#SITE.NAME}'
+        - tag: ap
+          value: '{#AP.NAME}'
+      - uuid: c1ae42881275402ebf15a9dab6512b12
+        name: '[{#SITE.NAME}] AP {#AP.NAME}: 5 GHz channel utilization'
+        type: DEPENDENT
+        key: unifi.ap.cu5[{#SITE.ID},{#AP.MAC}]
+        delay: '0'
+        history: 7d
+        value_type: FLOAT
+        trends: 90d
+        units: '%'
+        preprocessing:
+        - type: JAVASCRIPT
+          parameters:
+          - "var data = JSON.parse(value);\nvar a = null;\nfor (var i = 0; i < data.length; i++) {\n    if (data[i].mac ===\
+            \ \"{#AP.MAC}\" && data[i].zbx_site_id === \"{#SITE.ID}\") {\n        a = data[i];\n        break;\n    }\n}\n\
+            var radios = (a && a.radio_table_stats) ? a.radio_table_stats : [];\nvar r = null;\nfor (var j = 0; j < radios.length;\
+            \ j++) {\n    if (radios[j].radio === \"na\") {\n        r = radios[j];\n        break;\n    }\n}\nreturn r &&\
+            \ r.cu_total != null ? r.cu_total : 0;\n"
+        master_item:
+          key: unifi.aps.raw
+        tags:
+        - tag: site
+          value: '{#SITE.NAME}'
+        - tag: ap
+          value: '{#AP.NAME}'
+      - uuid: e4c7982b4daf4e3e914c0a0de035752f
+        name: '[{#SITE.NAME}] AP {#AP.NAME}: 5 GHz TX power'
+        type: DEPENDENT
+        key: unifi.ap.tx5[{#SITE.ID},{#AP.MAC}]
+        delay: '0'
+        history: 7d
+        value_type: FLOAT
+        trends: 90d
+        units: dBm
+        preprocessing:
+        - type: JAVASCRIPT
+          parameters:
+          - "var data = JSON.parse(value);\nvar a = null;\nfor (var i = 0; i < data.length; i++) {\n    if (data[i].mac ===\
+            \ \"{#AP.MAC}\" && data[i].zbx_site_id === \"{#SITE.ID}\") {\n        a = data[i];\n        break;\n    }\n}\n\
+            var radios = (a && a.radio_table_stats) ? a.radio_table_stats : [];\nvar r = null;\nfor (var j = 0; j < radios.length;\
+            \ j++) {\n    if (radios[j].radio === \"na\") {\n        r = radios[j];\n        break;\n    }\n}\nreturn r &&\
+            \ r.tx_power != null ? r.tx_power : 0;\n"
+        master_item:
+          key: unifi.aps.raw
+        tags:
+        - tag: site
+          value: '{#SITE.NAME}'
+        - tag: ap
+          value: '{#AP.NAME}'
+      - uuid: 040998efe8f54fee9c10e8e130c88f9d
+        name: '[{#SITE.NAME}] AP {#AP.NAME}: 5 GHz TX retries'
+        type: DEPENDENT
+        key: unifi.ap.retry5[{#SITE.ID},{#AP.MAC}]
+        delay: '0'
+        history: 7d
+        value_type: FLOAT
+        trends: 90d
+        units: '%'
+        preprocessing:
+        - type: JAVASCRIPT
+          parameters:
+          - "var data = JSON.parse(value);\nvar a = null;\nfor (var i = 0; i < data.length; i++) {\n    if (data[i].mac ===\
+            \ \"{#AP.MAC}\" && data[i].zbx_site_id === \"{#SITE.ID}\") {\n        a = data[i];\n        break;\n    }\n}\n\
+            var radios = (a && a.radio_table_stats) ? a.radio_table_stats : [];\nvar r = null;\nfor (var j = 0; j < radios.length;\
+            \ j++) {\n    if (radios[j].radio === \"na\") {\n        r = radios[j];\n        break;\n    }\n}\nreturn r &&\
+            \ r.tx_retries_pct != null ? r.tx_retries_pct : 0;\n"
+        master_item:
+          key: unifi.aps.raw
+        tags:
+        - tag: site
+          value: '{#SITE.NAME}'
+        - tag: ap
+          value: '{#AP.NAME}'
+      - uuid: e9014484a5794c6d800949fd067f1b45
+        name: '[{#SITE.NAME}] AP {#AP.NAME}: 5 GHz clients'
+        type: DEPENDENT
+        key: unifi.ap.clients5[{#SITE.ID},{#AP.MAC}]
+        delay: '0'
+        history: 7d
+        trends: 90d
+        preprocessing:
+        - type: JAVASCRIPT
+          parameters:
+          - "var data = JSON.parse(value);\nvar a = null;\nfor (var i = 0; i < data.length; i++) {\n    if (data[i].mac ===\
+            \ \"{#AP.MAC}\" && data[i].zbx_site_id === \"{#SITE.ID}\") {\n        a = data[i];\n        break;\n    }\n}\n\
+            var radios = (a && a.radio_table_stats) ? a.radio_table_stats : [];\nvar r = null;\nfor (var j = 0; j < radios.length;\
+            \ j++) {\n    if (radios[j].radio === \"na\") {\n        r = radios[j];\n        break;\n    }\n}\nreturn r &&\
+            \ r.num_sta != null ? r.num_sta : 0;\n"
+        master_item:
+          key: unifi.aps.raw
+        tags:
+        - tag: site
+          value: '{#SITE.NAME}'
+        - tag: ap
+          value: '{#AP.NAME}'
+      trigger_prototypes:
+      - uuid: 5e94645684434d178cc9c29bebbd9df8
+        expression: max(/UniFi Network Application by API/unifi.ap.status[{#SITE.ID},{#AP.MAC}],5m)=0
+        name: 'UniFi [{#SITE.NAME}] AP {#AP.NAME}: Offline for 5 minutes'
+        priority: HIGH
+        tags:
+        - tag: scope
+          value: availability
+        - tag: site
+          value: '{#SITE.NAME}'
+        - tag: ap
+          value: '{#AP.NAME}'
+        - tag: mac
+          value: '{#AP.MAC}'
+      - uuid: 334f559e76e14cd9ad4ce44e17949612
+        expression: avg(/UniFi Network Application by API/unifi.ap.cu24[{#SITE.ID},{#AP.MAC}],15m)>80
+        name: 'UniFi [{#SITE.NAME}] AP {#AP.NAME}: 2.4 GHz channel utilization is high'
+        priority: WARNING
+        tags:
+        - tag: site
+          value: '{#SITE.NAME}'
+        - tag: ap
+          value: '{#AP.NAME}'
+        - tag: mac
+          value: '{#AP.MAC}'
+      - uuid: 95e17a038c7a462ab2161dfd3284c2df
+        expression: avg(/UniFi Network Application by API/unifi.ap.cu5[{#SITE.ID},{#AP.MAC}],15m)>80
+        name: 'UniFi [{#SITE.NAME}] AP {#AP.NAME}: 5 GHz channel utilization is high'
+        priority: WARNING
+        tags:
+        - tag: site
+          value: '{#SITE.NAME}'
+        - tag: ap
+          value: '{#AP.NAME}'
+        - tag: mac
+          value: '{#AP.MAC}'
+      - uuid: 9e637a5136d44d4faec1ac115df77517
+        expression: avg(/UniFi Network Application by API/unifi.ap.retry24[{#SITE.ID},{#AP.MAC}],15m)>30
+        name: 'UniFi [{#SITE.NAME}] AP {#AP.NAME}: 2.4 GHz TX retries are high'
+        priority: WARNING
+        tags:
+        - tag: site
+          value: '{#SITE.NAME}'
+        - tag: ap
+          value: '{#AP.NAME}'
+        - tag: mac
+          value: '{#AP.MAC}'
+      - uuid: 8e8849a5240a45d6a2296e2613e1734c
+        expression: avg(/UniFi Network Application by API/unifi.ap.retry5[{#SITE.ID},{#AP.MAC}],15m)>30
+        name: 'UniFi [{#SITE.NAME}] AP {#AP.NAME}: 5 GHz TX retries are high'
+        priority: WARNING
+        tags:
+        - tag: site
+          value: '{#SITE.NAME}'
+        - tag: ap
+          value: '{#AP.NAME}'
+        - tag: mac
+          value: '{#AP.MAC}'
+      - uuid: 5abb187b4b63459f9f594ce2546f5939
+        expression: avg(/UniFi Network Application by API/unifi.ap.satisfaction[{#SITE.ID},{#AP.MAC}],15m)<70 and min(/UniFi
+          Network Application by API/unifi.ap.satisfaction[{#SITE.ID},{#AP.MAC}],15m)>=0
+        name: 'UniFi [{#SITE.NAME}] AP {#AP.NAME}: WiFi satisfaction is low'
+        priority: WARNING
+        tags:
+        - tag: site
+          value: '{#SITE.NAME}'
+        - tag: ap
+          value: '{#AP.NAME}'
+        - tag: mac
+          value: '{#AP.MAC}'
+      - uuid: 8857586bb6ff425e9a86d610588ffd92
+        expression: last(/UniFi Network Application by API/unifi.ap.uptime[{#SITE.ID},{#AP.MAC}])<10m and last(/UniFi Network
+          Application by API/unifi.ap.status[{#SITE.ID},{#AP.MAC}])=1
+        name: 'UniFi [{#SITE.NAME}] AP {#AP.NAME}: Device was recently restarted'
+        priority: INFO
+        manual_close: 'YES'
+        tags:
+        - tag: site
+          value: '{#SITE.NAME}'
+        - tag: ap
+          value: '{#AP.NAME}'
+        - tag: mac
+          value: '{#AP.MAC}'
+      preprocessing:
+      - type: JAVASCRIPT
+        parameters:
+        - "var aps = JSON.parse(value);\nvar result = [];\n\nfor (var i = 0; i < aps.length; i++) {\n    var ap = aps[i];\n\
+          \n    result.push({\n        \"{#AP.NAME}\": ap.name || ap.mac,\n        \"{#AP.MAC}\": ap.mac || \"\",\n      \
+          \  \"{#AP.MODEL}\": ap.model || \"\",\n        \"{#AP.IP}\": ap.ip || \"\",\n        \"{#SITE.ID}\": ap.zbx_site_id\
+          \ || \"\",\n        \"{#SITE.NAME}\": ap.zbx_site_name || ap.zbx_site_id || \"\"\n    });\n}\n\nreturn JSON.stringify(result);"
+      master_item:
+        key: unifi.aps.raw
+    macros:
+    - macro: '{$UNIFI.URL}'
+      value: https://127.0.0.1:8443
+      description: UniFi Network Application base URL, without trailing slash.
+    - macro: '{$UNIFI.USER}'
+      value: zabbix-monitor
+      description: Local UniFi read-only monitoring user.
+    - macro: '{$UNIFI.PASSWORD}'
+      type: SECRET_TEXT
+      description: Password for the UniFi monitoring user.
