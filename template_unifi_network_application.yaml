@@ -7,13 +7,13 @@ zabbix_export:
   - uuid: 10a160f472974c7e867c2b8574cbf0fa
     template: UniFi Network Application by API
     name: UniFi Network Application by API
-    description: 'UniFi Network Application standalone monitoring via local API.
+    description: 'UniFi Network Application and UniFi OS monitoring via local API.
 
-      Multi-site version for Zabbix 7.0: logs in once, discovers every site visible to the
+      Universal version for Zabbix 7.0: auto-detects standalone/self-hosted controllers
 
-      monitoring user, retrieves all APs, and adds site-aware LLD macros, item names and
+      and UniFi OS gateways such as UDM Pro, retrieves all APs, and adds site-aware LLD
 
-      trigger tags. Requires only URL, user and password host macros.'
+      macros, item names and trigger tags. Requires only URL, user and password host macros.'
     groups:
     - name: Templates/Network devices
     items:
@@ -25,21 +25,95 @@ zabbix_export:
       history: 1d
       trends: '0'
       value_type: TEXT
-      params: "var p = JSON.parse(value);\nvar req = new HttpRequest();\n\nreq.addHeader('Content-Type: application/json');\n\
-        \nvar login = req.post(p.url + '/api/login', JSON.stringify({\n    username: p.user,\n    password: p.password\n}));\n\
-        \nif (req.getStatus() != 200) {\n    throw 'UniFi login failed. HTTP status: ' + req.getStatus() + '; response: '\
-        \ + login;\n}\n\nvar sitesRaw = req.get(p.url + '/api/self/sites');\n\nif (req.getStatus() != 200) {\n    throw 'UniFi\
-        \ site query failed. HTTP status: ' + req.getStatus() + '; response: ' + sitesRaw;\n}\n\nvar sitesObj = JSON.parse(sitesRaw);\n\
-        \nif (!sitesObj.meta || sitesObj.meta.rc !== 'ok' || !sitesObj.data) {\n    throw 'Unexpected UniFi sites response:\
-        \ ' + sitesRaw;\n}\n\nvar result = [];\n\nfor (var i = 0; i < sitesObj.data.length; i++) {\n    var site = sitesObj.data[i];\n\
-        \    var devicesRaw = req.get(p.url + '/api/s/' + encodeURIComponent(site.name) + '/stat/device');\n\n    if (req.getStatus()\
-        \ != 200) {\n        throw 'UniFi device query failed for site ' + site.name +\n              '. HTTP status: ' +\
-        \ req.getStatus() + '; response: ' + devicesRaw;\n    }\n\n    var devicesObj = JSON.parse(devicesRaw);\n\n    if\
-        \ (!devicesObj.meta || devicesObj.meta.rc !== 'ok' || !devicesObj.data) {\n        throw 'Unexpected UniFi device\
-        \ response for site ' + site.name + ': ' + devicesRaw;\n    }\n\n    for (var j = 0; j < devicesObj.data.length; j++)\
-        \ {\n        var d = devicesObj.data[j];\n\n        if (d.type === 'uap') {\n            d.zbx_site_id = site.name\
-        \ || '';\n            d.zbx_site_name = site.desc || site.name || '';\n            result.push(d);\n        }\n  \
-        \  }\n}\n\nreturn JSON.stringify(result);"
+      params: |-
+        var p = JSON.parse(value);
+        var req = new HttpRequest();
+
+        req.addHeader('Content-Type: application/json');
+
+        var result = [];
+        var loginPayload = JSON.stringify({
+            username: p.user,
+            password: p.password,
+            rememberMe: false
+        });
+
+        /* First try the standalone / self-hosted Network Application API. */
+        var login = req.post(p.url + '/api/login', loginPayload);
+        var standaloneStatus = req.getStatus();
+
+        if (standaloneStatus == 200) {
+            var sitesRaw = req.get(p.url + '/api/self/sites');
+
+            if (req.getStatus() != 200) {
+                throw 'UniFi site query failed. HTTP status: ' + req.getStatus() + '; response: ' + sitesRaw;
+            }
+
+            var sitesObj = JSON.parse(sitesRaw);
+
+            if (!sitesObj.meta || sitesObj.meta.rc !== 'ok' || !sitesObj.data) {
+                throw 'Unexpected UniFi sites response: ' + sitesRaw;
+            }
+
+            for (var i = 0; i < sitesObj.data.length; i++) {
+                var site = sitesObj.data[i];
+                var devicesRaw = req.get(p.url + '/api/s/' + encodeURIComponent(site.name) + '/stat/device');
+
+                if (req.getStatus() != 200) {
+                    throw 'UniFi device query failed for site ' + site.name + '. HTTP status: ' + req.getStatus() + '; response: ' + devicesRaw;
+                }
+
+                var devicesObj = JSON.parse(devicesRaw);
+
+                if (!devicesObj.meta || devicesObj.meta.rc !== 'ok' || !devicesObj.data) {
+                    throw 'Unexpected UniFi device response for site ' + site.name + ': ' + devicesRaw;
+                }
+
+                for (var j = 0; j < devicesObj.data.length; j++) {
+                    var d = devicesObj.data[j];
+
+                    if (d.type === 'uap') {
+                        d.zbx_site_id = site.name || '';
+                        d.zbx_site_name = site.desc || site.name || '';
+                        result.push(d);
+                    }
+                }
+            }
+
+            return JSON.stringify(result);
+        }
+
+        /* Standalone login failed, so try UniFi OS / Cloud Gateway (UDM, UDM Pro, etc.). */
+        var osLogin = req.post(p.url + '/api/auth/login', loginPayload);
+        var osStatus = req.getStatus();
+
+        if (osStatus != 200) {
+            throw 'UniFi login failed. Standalone HTTP status: ' + standaloneStatus + '; UniFi OS HTTP status: ' + osStatus + '; response: ' + osLogin;
+        }
+
+        var devicesRaw = req.get(p.url + '/proxy/network/api/s/default/stat/device');
+
+        if (req.getStatus() != 200) {
+            throw 'UniFi OS device query failed. HTTP status: ' + req.getStatus() + '; response: ' + devicesRaw;
+        }
+
+        var devicesObj = JSON.parse(devicesRaw);
+
+        if (!devicesObj.meta || devicesObj.meta.rc !== 'ok' || !devicesObj.data) {
+            throw 'Unexpected UniFi OS device response: ' + devicesRaw;
+        }
+
+        for (var k = 0; k < devicesObj.data.length; k++) {
+            var u = devicesObj.data[k];
+
+            if (u.type === 'uap') {
+                u.zbx_site_id = 'default';
+                u.zbx_site_name = 'Default';
+                result.push(u);
+            }
+        }
+
+        return JSON.stringify(result);
       parameters:
       - name: password
         value: '{$UNIFI.PASSWORD}'
@@ -533,7 +607,7 @@ zabbix_export:
     macros:
     - macro: '{$UNIFI.URL}'
       value: https://127.0.0.1:8443
-      description: UniFi Network Application base URL, without trailing slash.
+      description: UniFi Network Application or UniFi OS base URL, without trailing slash.
     - macro: '{$UNIFI.USER}'
       value: zabbix-monitor
       description: Local UniFi read-only monitoring user.

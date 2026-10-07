@@ -1,82 +1,91 @@
-# Zabbix Template for UniFi Network Application
+# Template Zabbix para UniFi Network Application / UniFi OS
 
-Zabbix 7 template for monitoring UniFi Access Points through the local UniFi Network Application API.
+Template para Zabbix 7 orientado al monitoreo de Access Points UniFi mediante la API local de UniFi.
 
-The template is intended for self-hosted UniFi Network Application installations and supports multiple UniFi sites from a single controller. Sites and access points are discovered automatically.
+El template soporta tanto instalaciones **self-hosted de UniFi Network Application** como equipos basados en **UniFi OS**, por ejemplo **UDM Pro**, detectando automáticamente el tipo de plataforma.
 
-Tested with:
+En instalaciones self-hosted también soporta múltiples sitios desde un mismo controller. Los sitios y Access Points se descubren automáticamente.
+
+Probado con:
 
 - Zabbix 7.0.x
 - UniFi Network Application 10.x
-- Self-hosted UniFi Network Application
-- Zabbix Server and Zabbix Proxy
+- UniFi Network Application self-hosted
+- UniFi Controller (Legacy)
+- UniFi OS / UDM Pro
+- Zabbix Server y Zabbix Proxy
 
-## Features
+## Funcionalidades
 
-- Multi-site discovery
-- Automatic AP discovery
-- One API login and collection cycle for all visible sites
-- Site-aware item and trigger names
-- Site/AP tags for filtering in Zabbix
-- No SNMP or Zabbix Agent required on the APs
+- Detección automática entre UniFi Network Application y UniFi OS
+- Descubrimiento multi-site en controllers self-hosted
+- Descubrimiento automático de Access Points
+- Una única consulta principal a la API por ciclo
+- Nombres de ítems y triggers identificados por sitio y AP
+- Tags por sitio y Access Point para facilitar filtros en Zabbix
+- No requiere SNMP ni Zabbix Agent en los AP
 
-The template currently collects:
+Actualmente el template obtiene:
 
-- AP status
-- IP address
-- Model
-- Firmware version
+- Estado del AP
+- Dirección IP
+- Modelo
+- Versión de firmware
 - Uptime
-- Connected clients
+- Clientes conectados
 - WiFi satisfaction
-- 2.4 GHz channel
-- 2.4 GHz channel utilization
-- 2.4 GHz TX power
-- 2.4 GHz TX retries
-- 2.4 GHz clients
-- 5 GHz channel
-- 5 GHz channel utilization
-- 5 GHz TX power
-- 5 GHz TX retries
-- 5 GHz clients
+- Canal de 2.4 GHz
+- Utilización de canal de 2.4 GHz
+- Potencia TX de 2.4 GHz
+- Retransmisiones TX de 2.4 GHz
+- Clientes en 2.4 GHz
+- Canal de 5 GHz
+- Utilización de canal de 5 GHz
+- Potencia TX de 5 GHz
+- Retransmisiones TX de 5 GHz
+- Clientes en 5 GHz
 
-Included trigger prototypes:
+Triggers incluidos:
 
-- AP offline for 5 minutes
-- High 2.4 GHz channel utilization
-- High 5 GHz channel utilization
-- High 2.4 GHz TX retries
-- High 5 GHz TX retries
-- Low WiFi satisfaction
-- Recently restarted AP
+- AP offline durante 5 minutos
+- Utilización alta del canal de 2.4 GHz
+- Utilización alta del canal de 5 GHz
+- Retransmisiones TX altas en 2.4 GHz
+- Retransmisiones TX altas en 5 GHz
+- WiFi satisfaction baja
+- AP reiniciado recientemente
 
-## Requirements
+## Requisitos
 
-- Zabbix 7.0 or newer
-- Self-hosted UniFi Network Application
-- A local UniFi user with read-only access to the sites that should be monitored
-- TCP/8443 connectivity from the Zabbix Server or Zabbix Proxy performing the checks to the UniFi Network Application
+- Zabbix 7.0 o superior
+- UniFi Network Application self-hosted o UniFi OS compatible
+- Usuario local de UniFi con permisos de solo lectura
+- Conectividad HTTPS desde el Zabbix Server o Zabbix Proxy hacia el controller o gateway UniFi
 
-No host interface is required in Zabbix. The template uses a Zabbix Script item and the UniFi API directly.
+No es necesario configurar una interfaz de host en Zabbix. El template utiliza un ítem de tipo Script y consulta directamente la API de UniFi.
 
-## Installation
+## Instalación
 
-1. Download `template_unifi_network_application.yaml`.
-2. In Zabbix, go to **Data collection → Templates → Import**.
-3. Import the template.
-4. Create a host for the UniFi Network Application.
-5. Link the template **UniFi Network Application by API**.
-6. If the controller should be queried by a Zabbix Proxy, assign the host to that proxy.
-7. Configure the required host macros.
-8. Do not add an Agent or SNMP interface unless you need it for something unrelated to this template.
+1. Descargar `template_unifi_network_application.yaml`.
+2. En Zabbix ir a **Data collection → Templates → Import**.
+3. Importar el template.
+4. Crear un host para el controller UniFi o UDM.
+5. Asociar el template **UniFi Network Application by API**.
+6. Si las consultas deben realizarse desde un Zabbix Proxy, asignar el host al proxy correspondiente.
+7. Configurar las macros requeridas.
+8. No agregar interfaces Agent o SNMP salvo que sean necesarias para otro tipo de monitoreo.
 
-## UniFi user
+## Usuario de UniFi
 
-Create a dedicated local user in UniFi Network Application for monitoring.
+Se recomienda crear un usuario local dedicado exclusivamente al monitoreo.
 
-Read-only access is sufficient. Grant the user access to every UniFi site that should appear in Zabbix.
+Los permisos de solo lectura son suficientes.
 
-The template calls:
+En instalaciones self-hosted con múltiples sitios, el usuario debe tener acceso a todos los sitios que se quieran descubrir desde Zabbix.
+
+### UniFi Network Application self-hosted
+
+El template utiliza:
 
 ```text
 /api/login
@@ -84,116 +93,155 @@ The template calls:
 /api/s/<site>/stat/device
 ```
 
-`/api/self/sites` is used to discover all sites visible to the monitoring account. The template then queries each site and discovers devices with type `uap`.
+`/api/self/sites` permite descubrir todos los sitios visibles para el usuario de monitoreo. Luego se consulta cada sitio y se descubren los dispositivos con tipo `uap`.
 
-Because site discovery is automatic, a separate template or Zabbix host is not required for every UniFi site.
+### UniFi OS / UDM Pro
 
-## Zabbix macros
+En UniFi OS el template utiliza:
 
-Configure these macros on the Zabbix host:
+```text
+/api/auth/login
+/proxy/network/api/s/default/stat/device
+```
 
-| Macro | Example | Description |
+El tipo de plataforma se detecta automáticamente. No es necesario indicar manualmente si el equipo es un UDM o un controller tradicional.
+
+## Macros de Zabbix
+
+Configurar las siguientes macros en el host:
+
+| Macro | Ejemplo | Descripción |
 | --- | --- | --- |
-| `{$UNIFI.URL}` | `https://192.168.1.10:8443` | Base URL of UniFi Network Application, without a trailing slash |
-| `{$UNIFI.USER}` | `zabbix-monitor` | Local UniFi monitoring user |
-| `{$UNIFI.PASSWORD}` | `********` | Password for the monitoring user |
+| `{$UNIFI.URL}` | `https://192.168.1.10:8443` | URL base del controller UniFi, sin `/` al final |
+| `{$UNIFI.USER}` | `zabbix-monitor` | Usuario local utilizado para monitoreo |
+| `{$UNIFI.PASSWORD}` | `********` | Contraseña del usuario de monitoreo |
 
-`{$UNIFI.PASSWORD}` is defined as a Zabbix Secret text macro.
+`{$UNIFI.PASSWORD}` está definido como macro de tipo **Secret text**.
 
-There is no site macro. All sites visible to the UniFi monitoring user are discovered automatically.
+No existe una macro de sitio. Los sitios disponibles se descubren automáticamente cuando el controller lo soporta.
 
-## Multi-site discovery
+## Descubrimiento multi-site
 
-For every discovered AP, the template adds the UniFi site ID and site name to the discovery data.
+En UniFi Network Application self-hosted, el template agrega a cada AP descubierto el ID y nombre del sitio al que pertenece.
 
-Items are named using the site description, for example:
-
-```text
-[Head Office] AP AP-01: Status
-[Branch Office] AP AP-02: Clients
-```
-
-Triggers also contain the site name:
+Los ítems quedan identificados de esta forma:
 
 ```text
-UniFi [Branch Office] AP AP-02: Offline for 5 minutes
+[Casa Central] AP AP-01: Status
+[Sucursal] AP AP-02: Clients
 ```
 
-Discovered items and triggers are tagged with the site and AP name. Trigger prototypes also include the AP MAC address. This makes it possible to filter Zabbix Problems and dashboards by site.
+Los triggers también incluyen el sitio:
 
-## How it works
+```text
+UniFi [Sucursal] AP AP-02: Offline for 5 minutes
+```
 
-The master Script item runs once per minute.
+Los ítems y triggers descubiertos incluyen tags con el sitio y nombre del AP. Los triggers también incluyen la dirección MAC.
 
-On every execution it:
+Esto permite filtrar fácilmente Problems, dashboards y vistas dentro de Zabbix.
 
-1. Authenticates against the local UniFi API.
-2. Retrieves the list of sites available to the monitoring user.
-3. Queries `/stat/device` for every site.
-4. Keeps UniFi AP (`uap`) devices.
-5. Adds the site ID and site description to every AP object.
-6. Returns a single JSON document to Zabbix.
+## Cómo funciona
 
-A low-level discovery rule processes this JSON and creates dependent items for every AP.
+El ítem principal de tipo Script se ejecuta una vez por minuto.
 
-This avoids making a separate API request for every metric.
+En cada ejecución:
 
-## Notes
+1. Intenta autenticarse utilizando la API clásica de UniFi Network Application.
+2. Si la autenticación es exitosa, obtiene todos los sitios visibles para el usuario.
+3. Consulta los dispositivos de cada sitio.
+4. Si el primer método no aplica, intenta autenticarse mediante UniFi OS.
+5. En UniFi OS consulta los dispositivos de Network mediante `/proxy/network/api/...`.
+6. Conserva únicamente los dispositivos de tipo `uap`.
+7. Devuelve un único JSON con todos los Access Points encontrados.
+
+Una regla de Low-Level Discovery procesa ese JSON y genera automáticamente los ítems dependientes para cada AP.
+
+De esta forma no se realiza una consulta independiente a la API por cada métrica.
+
+## Notas
 
 ### Zabbix Proxy
 
-When a host is assigned to a Zabbix Proxy, the API request is executed by that proxy.
+Cuando el host está asignado a un Zabbix Proxy, las consultas a la API se ejecutan desde ese proxy.
 
-Make sure the proxy can reach the value configured in `{$UNIFI.URL}`.
+Por lo tanto, el proxy debe tener conectividad hacia la dirección configurada en `{$UNIFI.URL}`.
 
-For example:
+Por ejemplo:
 
 ```bash
 curl -k https://192.168.1.10:8443/
 ```
 
-### Site permissions
+En UDM o UniFi OS normalmente se utiliza HTTPS sobre el puerto 443, por ejemplo:
 
-If a site does not appear in Zabbix, check the permissions of the UniFi monitoring user first.
+```text
+https://192.168.1.1
+```
 
-Only sites returned by `/api/self/sites` can be discovered.
+### Permisos de sitios
+
+Si un sitio no aparece en Zabbix, revisar primero los permisos del usuario local utilizado para monitoreo.
+
+En controllers multi-site, solamente se podrán descubrir los sitios visibles para ese usuario.
 
 ### WiFi satisfaction
 
-Some APs may report `-1` when satisfaction data is not available. The included satisfaction trigger ignores negative values.
+Algunos AP pueden devolver `-1` cuando la métrica de satisfaction no está disponible.
 
-### Radio data
+El trigger incluido ignora los valores negativos para evitar alertas incorrectas.
 
-The current template handles the UniFi `ng` and `na` radio entries as 2.4 GHz and 5 GHz respectively.
+### Datos de radios
 
-6 GHz radio metrics are not currently included.
+Actualmente el template interpreta:
 
-## Current scope
+```text
+ng = 2.4 GHz
+na = 5 GHz
+```
 
-This template currently focuses on UniFi Access Points.
+Se utilizan los datos disponibles dentro de `radio_table_stats`.
 
-It does not currently discover or monitor:
+Las métricas de 6 GHz todavía no están incluidas.
 
-- UniFi switches
-- UniFi gateways
-- Client devices
-- WLAN/SSID statistics
-- 6 GHz radio statistics
+## Alcance actual
 
-These may be added later.
+Actualmente el template está enfocado en Access Points UniFi.
 
-## Compatibility
+No descubre ni monitorea todavía:
 
-The template was developed and tested against UniFi Network Application 10.3.58 and Zabbix 7.0.30.
+- Switches UniFi
+- Gateways UniFi
+- Clientes
+- Estadísticas WLAN/SSID
+- Radios de 6 GHz
 
-It uses the local UniFi Network Application API. These endpoints are not guaranteed to remain unchanged between UniFi releases, so test the template after major UniFi upgrades.
+Estas funciones pueden incorporarse en futuras versiones.
 
-UniFi OS consoles and Cloud Gateways have not been tested with this template.
+## Compatibilidad
 
-## Security
+El template fue desarrollado y probado con:
 
-Use a dedicated read-only UniFi account for monitoring.
+- Zabbix 7.0.30
+- UniFi Network Application 10.3.58
+- Controllers UniFi Network Application de versiones anteriores
+- UniFi OS / UDM Pro
 
-Do not store real credentials in the template file or commit host-specific Zabbix configuration containing credentials to a public repository.
+La API local de UniFi puede sufrir cambios entre versiones, por lo que se recomienda validar el funcionamiento luego de actualizaciones mayores.
 
-The template itself contains no controller IP addresses, site IDs, customer names or credentials.
+## Seguridad
+
+Se recomienda utilizar siempre un usuario local dedicado y de solo lectura para el monitoreo.
+
+No incluir credenciales reales dentro del template ni publicar configuraciones de hosts que contengan datos sensibles.
+
+El template no incluye:
+
+- Direcciones IP de clientes
+- IDs de sitios reales
+- Nombres de clientes
+- Usuarios o contraseñas reales
+
+## Licencia
+
+Este proyecto se distribuye bajo licencia MIT.
